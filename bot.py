@@ -66,17 +66,17 @@ STOP_WORDS = {
     "during", "each", "few", "for", "from", "further", "get",
     "gets", "got", "had", "has", "have", "having", "he", "her",
     "here", "hers", "herself", "him", "himself", "his", "how",
-    "i", "if", "in", "into", "is", "it", "its", "it's", "itself", "just",
-    "me", "more", "most", "my", "myself", "no", "nor", "not",
-    "now", "of", "off", "on", "once", "only", "or", "other",
-    "our", "ours", "ourselves", "out", "over", "own", "same",
-    "she", "should", "so", "some", "such", "than", "that",
-    "the", "their", "theirs", "them", "themselves", "then",
-    "there", "these", "they", "this", "those", "through", "to",
-    "too", "under", "until", "up", "very", "was", "we", "were",
-    "what", "when", "where", "which", "while", "who", "whom",
-    "why", "will", "with", "would", "you", "your", "yours",
-    "yourself", "yourselves"
+    "i", "if", "in", "into", "is", "it", "it's", "its", "itself",
+    "just", "me", "more", "most", "my", "myself", "no", "nor",
+    "not", "now", "of", "off", "on", "once", "only", "or",
+    "other", "our", "ours", "ourselves", "out", "over", "own",
+    "same", "she", "should", "so", "some", "such", "than",
+    "that", "the", "their", "theirs", "them", "themselves",
+    "then", "there", "these", "they", "this", "those", "through",
+    "to", "too", "under", "until", "up", "very", "was", "we",
+    "were", "what", "when", "where", "which", "while", "who",
+    "whom", "why", "will", "with", "would", "you", "your",
+    "yours", "yourself", "yourselves"
 }
 
 
@@ -167,6 +167,23 @@ def save_quote(parsed, message_id):
     except sqlite3.IntegrityError:
 
         return False
+
+
+# ==================================================
+# Create Discord jump link
+# ==================================================
+
+def create_jump_link(guild_id, message_id):
+    """
+    Create a direct link to the original Discord message.
+    """
+
+    return (
+        f"https://discord.com/channels/"
+        f"{guild_id}/"
+        f"{QUOTE_CHANNEL_ID}/"
+        f"{message_id}"
+    )
 
 
 # ==================================================
@@ -325,7 +342,7 @@ async def quote_command(
 ):
 
     cursor = db.execute("""
-        SELECT quote, year, name
+        SELECT quote, year, name, message_id
         FROM quotes
         WHERE LOWER(name) = LOWER(?)
     """, (name,))
@@ -340,11 +357,17 @@ async def quote_command(
 
         return
 
-    quote, year, stored_name = random.choice(quotes)
+    quote, year, stored_name, message_id = random.choice(quotes)
+
+    jump_link = create_jump_link(
+        interaction.guild_id,
+        message_id
+    )
 
     await interaction.response.send_message(
         f"💬 **{stored_name}, {year}:**\n"
-        f"> {quote}"
+        f"> {quote}\n\n"
+        f"[Jump to Original]({jump_link})"
     )
 
 
@@ -388,7 +411,7 @@ async def quote_autocomplete(
 async def randomquote(interaction: discord.Interaction):
 
     cursor = db.execute("""
-        SELECT quote, year, name
+        SELECT quote, year, name, message_id
         FROM quotes
         ORDER BY RANDOM()
         LIMIT 1
@@ -404,12 +427,18 @@ async def randomquote(interaction: discord.Interaction):
 
         return
 
-    quote, year, name = result
+    quote, year, name, message_id = result
+
+    jump_link = create_jump_link(
+        interaction.guild_id,
+        message_id
+    )
 
     await interaction.response.send_message(
         f"🎲 **Random Quote**\n\n"
         f"**{name}, {year}:**\n"
-        f"> {quote}"
+        f"> {quote}\n\n"
+        f"[Jump to Original]({jump_link})"
     )
 
 
@@ -457,7 +486,7 @@ async def leaderboard(interaction: discord.Interaction):
             prefix = f"**{index + 1}.**"
 
         lines.append(
-            f"{prefix} **{name}** — {count} quote"
+            f"{prefix} **{name}** - {count} quote"
             f"{'s' if count != 1 else ''}"
         )
 
@@ -497,7 +526,6 @@ def get_most_common_word(name):
 
     for (quote,) in quotes:
 
-        # Extract words and ignore punctuation.
         words = re.findall(
             r"[A-Za-z']+",
             quote.lower()
@@ -508,7 +536,6 @@ def get_most_common_word(name):
             if word in STOP_WORDS:
                 continue
 
-            # Ignore one-letter words.
             if len(word) <= 1:
                 continue
 
@@ -575,7 +602,7 @@ async def quotestats(
     # --------------------------------------------------
 
     first_quote = db.execute("""
-        SELECT quote, year, name
+        SELECT quote, year, name, message_id
         FROM quotes
         WHERE LOWER(name) = LOWER(?)
         ORDER BY id ASC
@@ -585,13 +612,14 @@ async def quotestats(
     first_quote_text = first_quote[0]
     first_quote_year = first_quote[1]
     stored_name = first_quote[2]
+    first_message_id = first_quote[3]
 
     # --------------------------------------------------
     # Last recorded quote
     # --------------------------------------------------
 
     last_quote = db.execute("""
-        SELECT quote, year, name
+        SELECT quote, year, name, message_id
         FROM quotes
         WHERE LOWER(name) = LOWER(?)
         ORDER BY id DESC
@@ -600,6 +628,7 @@ async def quotestats(
 
     last_quote_text = last_quote[0]
     last_quote_year = last_quote[1]
+    last_message_id = last_quote[3]
 
     # --------------------------------------------------
     # Most common word
@@ -608,8 +637,11 @@ async def quotestats(
     common_word, common_word_count = get_most_common_word(name)
 
     if common_word is None:
+
         common_word_display = "No meaningful words found"
+
     else:
+
         common_word_display = (
             f"**{common_word}** "
             f"({common_word_count} occurrence"
@@ -617,11 +649,25 @@ async def quotestats(
         )
 
     # --------------------------------------------------
+    # Create jump links
+    # --------------------------------------------------
+
+    first_jump_link = create_jump_link(
+        interaction.guild_id,
+        first_message_id
+    )
+
+    last_jump_link = create_jump_link(
+        interaction.guild_id,
+        last_message_id
+    )
+
+    # --------------------------------------------------
     # Build embed
     # --------------------------------------------------
 
     embed = discord.Embed(
-        title=f"📊 Quote Statistics — {stored_name}",
+        title=f"📊 Quote Statistics - {stored_name}",
         description=(
             f"Here is the archaeological record "
             f"of **{stored_name}**."
@@ -647,19 +693,25 @@ async def quotestats(
     )
 
     embed.add_field(
-        name=f"🏛️ First Recorded Quote — {first_quote_year}",
-        value=f"> {first_quote_text}",
+        name=f"🏛️ First Recorded Quote - {first_quote_year}",
+        value=(
+            f"> {first_quote_text}\n\n"
+            f"[Jump to Original]({first_jump_link})"
+        ),
         inline=False
     )
 
     embed.add_field(
-        name=f"🕐 Last Recorded Quote — {last_quote_year}",
-        value=f"> {last_quote_text}",
+        name=f"🕐 Last Recorded Quote - {last_quote_year}",
+        value=(
+            f"> {last_quote_text}\n\n"
+            f"[Jump to Original]({last_jump_link})"
+        ),
         inline=False
     )
 
     embed.set_footer(
-        text="The collective never forgets."
+        text="The Collective never forgets."
     )
 
     await interaction.response.send_message(
